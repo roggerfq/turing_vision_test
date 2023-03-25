@@ -29,6 +29,16 @@
       // Rectangular region
       var width = 270;
       var height = 270;
+      
+      const isMobile = /Mobile|Android/.test(navigator.userAgent);
+      if (isMobile) {
+         // El usuario está accediendo a la página desde un dispositivo móvil
+         width = 350;
+         height = 350;
+      }
+      
+      
+      
       var x1 = 0; //check in loop
       var y1 = 0; //chekk in loop
       var x2 = 0; //check in loop
