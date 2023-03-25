@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Computer Vision Turing Test</title>
+    <style>
+      #mi_video {
+        display: block;
+        /* Asegura que el video sea un elemento en bloque */
+        margin: 0 auto;
+        /* Centra el video horizontalmente */
+      }
+
+      #title {
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">Prove you're not a robot by stroking the kitten</h1>
+    <div>
+      <video id="mi_video" width="640" height="480" style="transform: scaleX(-1);"></video>
+    </div>
+    <!-- Cargar la biblioteca de TensorFlow.js desde el CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.10.0/dist/tf.min.js"></script>
+    <script async src="https://docs.opencv.org/master/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    <script>
+      //Global
+      // Rectangular region
+      var width = 270;
+      var height = 270;
+      var x1 = 0; //check in loop
+      var y1 = 0; //chekk in loop
+      var x2 = 0; //check in loop
+      var y2 = 0; //check in loop
+      var fist_iteration = true;
+      var path_img_angry_cat = "./images/angry_cat.png"
+      var path_img_happy_cat = "./images/happy_cat.png";
+      var img_angry_cat = null;
+      var img_happy_cat = null;
+      var happiness_punctuation = 0;
+      let cv_canvas = document.getElementById('canvas');
+      //_______________________________________________________//
+      // Función para preprocesar la imagen
+      function preprocessImage(imgTensor) {
+        // redimensionamos la imagen a 224x224
+        const resizedImg = tf.image.resizeBilinear(imgTensor, [224, 224]);
+        // Crear un tensor a partir de la imagen y escalarlo
+        const tensor = resizedImg.toFloat().div(tf.scalar(255));
+        // Agregar una dimensión de lote
+        const batchedTensor = tensor.expandDims(0);
+        //batchedTensor.print();
+        //console.log(batchedTensor.shape);
+        // Devolver el tensor preprocesado
+        tf.dispose([resizedImg, tensor]);
+        return batchedTensor;
+      }
+      const modelUrl = 'https://raw.githubusercontent.com/roggerfq/hand_classifier/main/model_js_v4/model.json';
+      let model;
+      async function loadModel() {
+        model = await tf.loadLayersModel(modelUrl);
+      }
+      loadModel();
+      async function runInference(imgTensor) {
+        tf.engine().startScope()
+        // Cargar el modelo
+        //const model = await tf.loadLayersModel(modelUrl);
+        // Obtener la imagen y preprocesarla
+        //const img = document.getElementById('image');
+        // Convertir la imagen en un tensor de TensorFlow.js
+        //const imgTensor = tf.browser.fromPixels(img);
+        //console.log(imgTensor.shape);
+        const processedImg = preprocessImage(imgTensor);
+        // Realizar la inferencia y obtener las predicciones
+        const predictions = model.predict(processedImg);
+        const output = predictions.arraySync()[0][0];
+        if (output < 0.6) {
+          happiness_punctuation = happiness_punctuation + 3;
+          //console.log(output);
+        }
+        // Mostrar las predicciones en la consola
+        //console.log('prediccion: ' + output.toString());
+        // Liberar la memoria utilizada por el modelo
+        //model.dispose();
+        // Liberar la memoria utilizada por los tensores intermedios
+        tf.dispose([processedImg, predictions]);
+        tf.engine().endScope()
+        return output;
+      }
+      // Agregar un evento al objeto window que se active al cerrar la página o recargarla
+      window.addEventListener('beforeunload', () => {
+        // Liberar la memoria utilizada por el modelo
+        model.dispose();
+      });
+
+      function getRgb(img) {
+        cv.cvtColor(img, img, cv.COLOR_BGRA2RGB);
+        cv.cvtColor(img, img, cv.COLOR_RGB2RGBA);
+        const channels = new cv.MatVector();
+        cv.split(img, channels);
+        const rgbImg = new cv.MatVector();
+        rgbImg.push_back(channels.get(0));
+        rgbImg.push_back(channels.get(1));
+        rgbImg.push_back(channels.get(2));
+        const mergedImg = new cv.Mat();
+        cv.merge(rgbImg, mergedImg);
+        channels.delete();
+        rgbImg.delete();
+        return mergedImg;
+      }
+
+      function opencvToTensor(region_tmp) {
+        const data = new Uint8Array(region_tmp.data);
+        const tensor = tf.tensor3d(data, [region_tmp.rows, region_tmp.cols, region_tmp.channels()]);
+        return tensor;
+      }
+
+      function concentricRects(x1, y1, x2, y2, n) {
+        const rects = [];
+        const width = Math.abs(x1 - x2);
+        const height = Math.abs(y1 - y2);
+        const centerX = (x1 + x2) / 2;
+        const centerY = (y1 + y2) / 2;
+        for (let i = n; i > n / 2; i--) {
+          const rectWidth = width * i / n;
+          const rectHeight = height * i / n;
+          const x = centerX - rectWidth / 2;
+          const y = centerY - rectHeight / 2;
+          const rect = new cv.Rect(x, y, rectWidth, rectHeight);
+          rects.push(rect);
+        }
+        return rects;
+      }
+
+      function randomInteger(n) {
+        return Math.floor(Math.random() * n);
+      }
+
+      function superponerImagenEnVideo(rutaImagen, x, y, ancho, alto, opacity) {
+        // Obtener el elemento del video y crear la superposición de imagen
+        const video = document.getElementById("mi_video");
+        const superposicion = document.createElement("img");
+        superposicion.src = rutaImagen;
+        superposicion.style.position = "absolute";
+        //superposicion.style.border = "2px solid red"; // Establece el borde rojo sólido
+        superposicion.style.opacity = opacity;
+        const rect = video.getBoundingClientRect();
+        //Coordenadas absolutas del div
+        const offset_x = rect.left + window.scrollX;
+        const offset_y = rect.top + window.scrollY;
+        superposicion.style.top = offset_y + y + "px";
+        superposicion.style.left = offset_x + x + "px";
+        superposicion.style.width = ancho + "px";
+        superposicion.style.height = alto + "px";
+        superposicion.style.zIndex = "1";
+        // Agregar la superposición de imagen al elemento del video
+        video.parentNode.insertBefore(superposicion, video);
+        return superposicion;
+      }
+      //_______________________________________________________//
+      // Función para inicializar OpenCV
+      function onOpenCvReady() {
+        // Cargar el video
+        var video = document.getElementById('mi_video');
+        navigator.mediaDevices.getUserMedia({
+          video: true
+        }).then(function(stream) {
+          video.srcObject = stream;
+          video.play();
+        }).catch(function(err) {
+          console.error('Error al acceder a la cámara', err);
+        });
+        // Cuando el video ha cargado
+        video.addEventListener('loadedmetadata', function() {
+          // Crear el canvas temporal
+          var canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          // Loop para procesar los frames del video
+          setInterval(function() {
+            // Dibujar el frame actual en el canvas temporal
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Crear la matriz OpenCV para la imagen
+            var mat = cv.imread(canvas);
+            const width_mat = mat.cols;
+            const height_mat = mat.rows;
+            let img_proc = new cv.Mat();
+            // Copiando la imagen origen en la imagen destino
+            mat.copyTo(img_proc);
+            if (fist_iteration) {
+              x1 = randomInteger(width_mat - width); // coordenada x de la esquina superior izquierda
+              y1 = randomInteger(height_mat - height); // coordenada y de la esquina superior izquierda
+              x2 = x1 + width;
+              y2 = y1 + height;
+              fist_iteration = false;
+              var height_img_cat = 0.5 * width;
+              var width_img_cat = 0.5 * height;
+              var cx = (x1 + x2) / 2;
+              var cy = (y1 + y2) / 2;
+              var dx = (width / 2) - (width_img_cat / 2);
+              var dy = (height / 2) - (height_img_cat / 2);
+              img_angry_cat = superponerImagenEnVideo(path_img_angry_cat, width_mat - x1 - width - 1 + dx, y1 + dy, width_img_cat, height_img_cat, 1);
+              img_happy_cat = superponerImagenEnVideo(path_img_happy_cat, width_mat - x1 - width - 1 + dx, y1 + dy, width_img_cat, height_img_cat, 0);
+            }
+            //var roi = mat.roi(new cv.Rect(x, y, width, height));
+            //var roi_rgb = getRgb(roi);
+            //______________________________//
+            var rects = concentricRects(x1, y1, x2, y2, 9);
+            for (const rect of rects) {
+              var roi = img_proc.roi(rect);
+              var roi_rgb = getRgb(roi);
+              var tensor = opencvToTensor(roi_rgb);
+              var output = runInference(tensor, rect);
+              //console.log(output);
+              let topLeft = new cv.Point(rect.x, rect.y);
+              let topRight = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+              cv.rectangle(mat, topLeft, topRight, new cv.Scalar(255, 0, 0), 2);
+              roi.delete();
+              roi_rgb.delete();
+              tf.dispose([tensor]);
+            }
+            //________________________________________________________________
+            if (happiness_punctuation > 0) happiness_punctuation = happiness_punctuation - 1;
+            console.log(happiness_punctuation);
+            if (happiness_punctuation <= 15) {
+              img_happy_cat.style.opacity = (happiness_punctuation / 10);
+              img_angry_cat.style.opacity = 1 - (happiness_punctuation / 10);
+            } else {
+              if (happiness_punctuation >= 20) {
+                happiness_punctuation = 20;
+                window.location.replace("https://drive.google.com/file/d/1YErbNaQPq9qHn_XRrgZdKjQRb9qaD4Jb/view?usp=sharing");
+              }
+            }
+            //________________________________________________________________
+            /*
+            var roi_rgb = getRgb(roi);
+            var tensor = opencvToTensor(roi_rgb);
+            var output = runInference(tensor);
+            console.log(output);
+            */
+            //__________________________//
+            /*
+            var pt1 = new cv.Point(x1, y1); // Punto inicial del rectángulo
+            var pt2 = new cv.Point(x2, y2); // Punto final del rectángulo
+            var color = new cv.Scalar(255, 0, 0);
+            cv.rectangle(mat, pt1, pt2, color, 2, cv.LINE_AA, 0);
+            
+            cv.flip(mat, mat, 1);
+            cv.imshow(cv_canvas, mat);
+            */
+            //__________________________//
+            //______________________________//
+            //var data = roi.data;
+            // Imprimir los datos de píxeles en la consola
+            //console.log(data);
+            // Liberar la memoria utilizada por la matriz
+            //roi.delete();
+            mat.delete();
+            img_proc.delete();
+            //roi_rgb.delete();
+            //tf.dispose([tensor]);
+          }, 1000 / 3); // 30 fps
+        });
+      }
+    </script>
+  </body>
+</html>
